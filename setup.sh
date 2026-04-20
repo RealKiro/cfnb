@@ -56,15 +56,9 @@ echo -e "${GREEN}[3/4] 创建 .gitignore 保护敏感文件...${NC}"
 cat > .gitignore << 'EOF'
 # 敏感配置文件
 config.json
-git_sync.sh
 git_sync.ps1
-
-# Python 缓存
+git_sync.sh
 __pycache__/
-*.pyc
-
-# 运行结果
-ip.txt
 EOF
 echo -e "${GREEN}✅ .gitignore 已创建${NC}"
 
