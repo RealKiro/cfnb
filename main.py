@@ -5,7 +5,7 @@ Cloudflare IP 优选工具 (TCP筛选 + IP可用性二次筛选 + curl带宽测�
 配置文件：同目录下的 config.json（请根据需要修改参数）
 结果保存到 ip.txt，并自动推送到 GitHub，同时批量更新到 Cloudflare DNS
 支持 Windows / Linux
-优化：国家过滤前置，减少无效 TCP 测试；重试参数可配置
+优化：国家过滤前置，减少无效 TCP 测试；重试参数可配置；所有网络请求连接超时分离
 """
 
 import requests
@@ -19,9 +19,6 @@ import shutil
 import json
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
-# 全局 socket 默认超时兜底，防止任何未显式设置超时的操作永久阻塞
-socket.setdefaulttimeout(10)
 
 # ==================== 加载配置文件 ====================
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
@@ -39,7 +36,7 @@ def load_config():
         print(f"❌ 错误：配置文件格式不正确 - {e}")
         sys.exit(1)
 
-    # 定义必填字段及其默认值（对齐最新 config.json 中的实际值）
+    # 定义必填字段及其默认值（完全对齐最新 config.json）
     defaults = {
         "USE_GLOBAL_MODE": True,
         "GLOBAL_TOP_N": 15,
@@ -48,6 +45,8 @@ def load_config():
         "TCP_PROBES": 5,
         "MIN_SUCCESS_RATE": 1.0,
         "TIMEOUT": 2.5,
+        "SOCKET_DEFAULT_TIMEOUT": 5,
+        "PROGRESS_PRINT_INTERVAL": 1,
         "FILTER_COUNTRIES_ENABLED": False,
         "ALLOWED_COUNTRIES": ["US", "HK"],
         "ENABLE_WXPUSHER": True,
@@ -55,21 +54,26 @@ def load_config():
         "WXPUSHER_UIDS": [""],
         "WXPUSHER_API_URL": "http://wxpusher.zjiecode.com/api/send/message",
         "NOTIFY_TIMEOUT": 5,
+        "NOTIFY_CONNECT_TIMEOUT": 5,
         "CF_ENABLED": True,
         "CF_API_TOKEN": "",
         "CF_ZONE_ID": "",
         "CF_DNS_RECORD_NAME": "",
         "CF_TTL": 60,
         "CF_PROXIED": False,
+        "CF_DNS_CONNECT_TIMEOUT": 5,
+        "CF_DNS_READ_TIMEOUT": 10,
         "JSON_URL": "https://zip.cm.edu.kg/all.txt",
         "FETCH_MAX_RETRIES": 3,
         "FETCH_RETRY_DELAY": 5,
         "FETCH_TIMEOUT": 5,
+        "FETCH_CONNECT_TIMEOUT": 5,
         "OUTPUT_FILE": "ip.txt",
         "TEST_AVAILABILITY": True,
         "FILTER_IPV6_AVAILABILITY": True,
         "AVAILABILITY_CHECK_API": "https://check-proxyip-api.cmliussss.net/check",
         "AVAILABILITY_TIMEOUT": 5,
+        "AVAILABILITY_CONNECT_TIMEOUT": 5,
         "AVAILABILITY_RETRY_MAX": 2,
         "AVAILABILITY_RETRY_DELAY": 5,
         "BANDWIDTH_SIZE_MB": 1,
@@ -78,10 +82,12 @@ def load_config():
         "BANDWIDTH_RETRY_DELAY": 5,
         "BANDWIDTH_URL_TEMPLATE": "https://speed.cloudflare.com/__down?bytes={bytes}",
         "BANDWIDTH_PROCESS_BUFFER": 2,
+        "BANDWIDTH_CONNECT_TIMEOUT": 5,
         "ENABLE_IP_PURITY_CHECK": True,
         "IP_PURITY_API": "https://api.ipapi.is/",
         "IP_PURITY_WORKERS": 5,
         "IP_PURITY_TIMEOUT": 5,
+        "IP_PURITY_CONNECT_TIMEOUT": 5,
         "IP_PURITY_RETRY_MAX": 2,
         "IP_PURITY_RETRY_DELAY": 5,
         "IP_PURITY_FALLBACK": True,
@@ -91,7 +97,8 @@ def load_config():
         "DNS_UPDATE_MAX_RETRIES": 3,
         "DNS_UPDATE_RETRY_DELAY": 5,
         "GITHUB_SYNC_MAX_RETRIES": 3,
-        "GITHUB_SYNC_RETRY_DELAY": 5
+        "GITHUB_SYNC_RETRY_DELAY": 5,
+        "GIT_SYNC_PROCESS_TIMEOUT": 180
     }
 
     # 用默认值补全缺失字段
@@ -113,6 +120,8 @@ BANDWIDTH_CANDIDATES = cfg["BANDWIDTH_CANDIDATES"]
 TCP_PROBES = cfg["TCP_PROBES"]
 MIN_SUCCESS_RATE = cfg["MIN_SUCCESS_RATE"]
 TIMEOUT = cfg["TIMEOUT"]
+SOCKET_DEFAULT_TIMEOUT = cfg["SOCKET_DEFAULT_TIMEOUT"]
+PROGRESS_PRINT_INTERVAL = cfg["PROGRESS_PRINT_INTERVAL"]
 FILTER_COUNTRIES_ENABLED = cfg["FILTER_COUNTRIES_ENABLED"]
 ALLOWED_COUNTRIES = cfg["ALLOWED_COUNTRIES"]
 ENABLE_WXPUSHER = cfg["ENABLE_WXPUSHER"]
@@ -120,21 +129,26 @@ WXPUSHER_APP_TOKEN = cfg["WXPUSHER_APP_TOKEN"]
 WXPUSHER_UIDS = cfg["WXPUSHER_UIDS"]
 WXPUSHER_API_URL = cfg["WXPUSHER_API_URL"]
 NOTIFY_TIMEOUT = cfg["NOTIFY_TIMEOUT"]
-CF_ENABLED = cfg.get("CF_ENABLED", False)
-CF_API_TOKEN = cfg.get("CF_API_TOKEN", "")
-CF_ZONE_ID = cfg.get("CF_ZONE_ID", "")
-CF_DNS_RECORD_NAME = cfg.get("CF_DNS_RECORD_NAME", "")
-CF_TTL = cfg.get("CF_TTL", 60)
-CF_PROXIED = cfg.get("CF_PROXIED", False)
+NOTIFY_CONNECT_TIMEOUT = cfg["NOTIFY_CONNECT_TIMEOUT"]
+CF_ENABLED = cfg["CF_ENABLED"]
+CF_API_TOKEN = cfg["CF_API_TOKEN"]
+CF_ZONE_ID = cfg["CF_ZONE_ID"]
+CF_DNS_RECORD_NAME = cfg["CF_DNS_RECORD_NAME"]
+CF_TTL = cfg["CF_TTL"]
+CF_PROXIED = cfg["CF_PROXIED"]
+CF_DNS_CONNECT_TIMEOUT = cfg["CF_DNS_CONNECT_TIMEOUT"]
+CF_DNS_READ_TIMEOUT = cfg["CF_DNS_READ_TIMEOUT"]
 JSON_URL = cfg["JSON_URL"]
 FETCH_MAX_RETRIES = cfg["FETCH_MAX_RETRIES"]
 FETCH_RETRY_DELAY = cfg["FETCH_RETRY_DELAY"]
 FETCH_TIMEOUT = cfg["FETCH_TIMEOUT"]
+FETCH_CONNECT_TIMEOUT = cfg["FETCH_CONNECT_TIMEOUT"]
 OUTPUT_FILE = cfg["OUTPUT_FILE"]
 TEST_AVAILABILITY = cfg["TEST_AVAILABILITY"]
 FILTER_IPV6_AVAILABILITY = cfg["FILTER_IPV6_AVAILABILITY"]
 AVAILABILITY_CHECK_API = cfg["AVAILABILITY_CHECK_API"]
 AVAILABILITY_TIMEOUT = cfg["AVAILABILITY_TIMEOUT"]
+AVAILABILITY_CONNECT_TIMEOUT = cfg["AVAILABILITY_CONNECT_TIMEOUT"]
 AVAILABILITY_RETRY_MAX = cfg["AVAILABILITY_RETRY_MAX"]
 AVAILABILITY_RETRY_DELAY = cfg["AVAILABILITY_RETRY_DELAY"]
 BANDWIDTH_SIZE_MB = cfg["BANDWIDTH_SIZE_MB"]
@@ -143,16 +157,26 @@ BANDWIDTH_RETRY_MAX = cfg["BANDWIDTH_RETRY_MAX"]
 BANDWIDTH_RETRY_DELAY = cfg["BANDWIDTH_RETRY_DELAY"]
 BANDWIDTH_URL_TEMPLATE = cfg["BANDWIDTH_URL_TEMPLATE"]
 BANDWIDTH_PROCESS_BUFFER = cfg["BANDWIDTH_PROCESS_BUFFER"]
+BANDWIDTH_CONNECT_TIMEOUT = cfg["BANDWIDTH_CONNECT_TIMEOUT"]
 ENABLE_IP_PURITY_CHECK = cfg["ENABLE_IP_PURITY_CHECK"]
 IP_PURITY_API = cfg["IP_PURITY_API"]
 IP_PURITY_WORKERS = cfg["IP_PURITY_WORKERS"]
 IP_PURITY_TIMEOUT = cfg["IP_PURITY_TIMEOUT"]
+IP_PURITY_CONNECT_TIMEOUT = cfg["IP_PURITY_CONNECT_TIMEOUT"]
 IP_PURITY_RETRY_MAX = cfg["IP_PURITY_RETRY_MAX"]
 IP_PURITY_RETRY_DELAY = cfg["IP_PURITY_RETRY_DELAY"]
 IP_PURITY_FALLBACK = cfg["IP_PURITY_FALLBACK"]
 MAX_WORKERS = cfg["MAX_WORKERS"]
 AVAILABILITY_WORKERS = cfg["AVAILABILITY_WORKERS"]
 BANDWIDTH_WORKERS = cfg["BANDWIDTH_WORKERS"]
+DNS_UPDATE_MAX_RETRIES = cfg["DNS_UPDATE_MAX_RETRIES"]
+DNS_UPDATE_RETRY_DELAY = cfg["DNS_UPDATE_RETRY_DELAY"]
+GITHUB_SYNC_MAX_RETRIES = cfg["GITHUB_SYNC_MAX_RETRIES"]
+GITHUB_SYNC_RETRY_DELAY = cfg["GITHUB_SYNC_RETRY_DELAY"]
+GIT_SYNC_PROCESS_TIMEOUT = cfg["GIT_SYNC_PROCESS_TIMEOUT"]
+
+# 设置全局 socket 默认超时
+socket.setdefaulttimeout(SOCKET_DEFAULT_TIMEOUT)
 
 # 动态生成带宽测速完整 URL
 BANDWIDTH_URL = BANDWIDTH_URL_TEMPLATE.format(bytes=BANDWIDTH_SIZE_MB * 1024 * 1024)
@@ -171,7 +195,12 @@ def send_wxpusher_notification(content, summary):
             "uids": WXPUSHER_UIDS
         }
         headers = {"Content-Type": "application/json; charset=utf-8"}
-        resp = requests.post(WXPUSHER_API_URL, data=json.dumps(payload), headers=headers, timeout=NOTIFY_TIMEOUT)
+        resp = requests.post(
+            WXPUSHER_API_URL,
+            data=json.dumps(payload),
+            headers=headers,
+            timeout=(NOTIFY_CONNECT_TIMEOUT, NOTIFY_TIMEOUT)
+        )
         if resp.status_code == 200:
             print("✅ 微信通知已发送")
         else:
@@ -187,7 +216,7 @@ def fetch_nodes():
     for attempt in range(1, max_retries + 1):
         try:
             print(f"正在请求 {JSON_URL} (尝试 {attempt}/{max_retries}) ...")
-            resp = requests.get(JSON_URL, timeout=FETCH_TIMEOUT)
+            resp = requests.get(JSON_URL, timeout=(FETCH_CONNECT_TIMEOUT, FETCH_TIMEOUT))
             resp.raise_for_status()
             # 按行读取，过滤空行和注释
             lines = [line.strip() for line in resp.text.splitlines() if line.strip() and not line.startswith('#')]
@@ -267,7 +296,7 @@ def check_availability(node_str):
         resp = requests.get(
             AVAILABILITY_CHECK_API,
             params={"proxyip": proxyip},
-            timeout=AVAILABILITY_TIMEOUT
+            timeout=(AVAILABILITY_CONNECT_TIMEOUT, AVAILABILITY_TIMEOUT)
         )
         if resp.status_code == 200:
             data = resp.json()
@@ -304,7 +333,7 @@ def availability_filter_candidates(candidates):
                 passed.append(node_str)
                 ip_info[node_str] = returned_ip
             now = time.time()
-            if now - last_print >= 0.5 or completed == total:
+            if now - last_print >= PROGRESS_PRINT_INTERVAL or completed == total:
                 print(f"\r[可用性检测] 进度：{completed}/{total} ({(completed/total)*100:.1f}%) 通过数量：{len(passed)}", end="", flush=True)
                 last_print = now
     print()
@@ -353,6 +382,7 @@ def measure_bandwidth_curl(node_str):
         "curl", "-s", "-o", null_device,
         "-w", "%{size_download} %{time_total}",
         "--resolve", f"speed.cloudflare.com:{port}:{ip}",
+        "--connect-timeout", str(BANDWIDTH_CONNECT_TIMEOUT),
         "--max-time", str(BANDWIDTH_TIMEOUT),
         "--insecure",
         BANDWIDTH_URL
@@ -394,6 +424,7 @@ def bandwidth_filter(candidates):
             node, speed = future.result()
             if speed > 0:
                 results.append((node, speed))
+            # 带宽测速进度打印无频率限制，因为节点数少且耗时本身长
             print(f"\r[带宽测速] 进度：{completed}/{total} ({(completed/total)*100:.1f}%)", end="", flush=True)
 
     print()
@@ -413,7 +444,7 @@ def check_ip_purity(node_str):
     url = f"{IP_PURITY_API.rstrip('/')}/?q={ip}"
 
     try:
-        resp = requests.get(url, timeout=IP_PURITY_TIMEOUT)
+        resp = requests.get(url, timeout=(IP_PURITY_CONNECT_TIMEOUT, IP_PURITY_TIMEOUT))
         if resp.status_code != 200:
             return (node_str, False, f"HTTP {resp.status_code}")
 
@@ -452,7 +483,7 @@ def purity_filter_bw_results(bw_results):
             if is_clean:
                 pure_nodes.append(node)
             now = time.time()
-            if now - last_print >= 0.5 or completed == total:
+            if now - last_print >= PROGRESS_PRINT_INTERVAL or completed == total:
                 print(f"\r[纯净度检测] 进度：{completed}/{total} ({(completed/total)*100:.1f}%) 通过数量：{len(pure_nodes)}", end="", flush=True)
                 last_print = now
     print()
@@ -582,7 +613,7 @@ def batch_update_cloudflare_dns(ip_list, ip_info=None, full_bw_results=None, tar
         try:
             # 查询现有记录
             list_url = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records?type=A&name={record_name}"
-            response = requests.get(list_url, headers=headers)
+            response = requests.get(list_url, headers=headers, timeout=(CF_DNS_CONNECT_TIMEOUT, CF_DNS_READ_TIMEOUT))
             response.raise_for_status()
             result = response.json()
             if not result.get('success'):
@@ -607,7 +638,7 @@ def batch_update_cloudflare_dns(ip_list, ip_info=None, full_bw_results=None, tar
             batch_url = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records/batch"
             payload = {"deletes": deletes, "posts": posts}
 
-            response = requests.post(batch_url, headers=headers, json=payload)
+            response = requests.post(batch_url, headers=headers, json=payload, timeout=(CF_DNS_CONNECT_TIMEOUT, CF_DNS_READ_TIMEOUT))
             response.raise_for_status()
             result = response.json()
             if not result.get('success'):
@@ -660,6 +691,7 @@ def sync_to_github():
 
     max_retries = cfg.get('GITHUB_SYNC_MAX_RETRIES', 5)
     retry_delay = cfg.get('GITHUB_SYNC_RETRY_DELAY', 10)
+    process_timeout = cfg.get('GIT_SYNC_PROCESS_TIMEOUT', 180)
 
     for attempt in range(1, max_retries + 1):
         print(f"\n正在同步到 GitHub (尝试 {attempt}/{max_retries})...")
@@ -674,7 +706,7 @@ def sync_to_github():
             )
 
             try:
-                stdout, stderr = process.communicate(timeout=300)
+                stdout, stderr = process.communicate(timeout=process_timeout)
                 if process.returncode == 0:
                     print("✅ 已自动推送到 GitHub。")
                     return
@@ -684,7 +716,7 @@ def sync_to_github():
                         print(f"错误信息: {stderr.strip()}")
             except subprocess.TimeoutExpired:
                 process.kill()
-                print("❌ 推送超时（超过5分钟）")
+                print(f"❌ 推送超时（超过 {process_timeout} 秒）")
         except Exception as e:
             print(f"❌ 推送过程异常: {e}")
 
@@ -745,7 +777,9 @@ def main():
             res = future.result()
             if res:
                 results.append(res)
-            print(f"\r进度：{completed}/{total} ({(completed/total)*100:.1f}%)", end="", flush=True)
+            # TCP 进度打印每秒刷新一次，使用配置间隔
+            if completed % max(1, int(total / 100)) == 0 or completed == total:
+                print(f"\r进度：{completed}/{total} ({(completed/total)*100:.1f}%)", end="", flush=True)
 
     print("\nTCP 测试完成！")
     if not results:
