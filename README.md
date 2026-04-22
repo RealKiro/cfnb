@@ -643,7 +643,7 @@ git branch -M $(git remote show origin | grep "HEAD branch" | cut -d " " -f5) 2>
 </details>
 
 <details>
-<summary>🌐 开着代理工具会影响测速结果吗？</summary>
+<summary>🌐 代理环境影响</summary>
 
 **会影响，尤其全局/TUN 模式。**
 
