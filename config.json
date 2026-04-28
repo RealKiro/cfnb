@@ -70,6 +70,10 @@
             "enabled": true
         },
         {
+            "url": "https://raw.githubusercontent.com/rjdsq/git-cf-api/main/max.txt",
+            "enabled": true
+        },
+        {
             "url": "https://wtf-359.pages.dev/wtf.txt",
             "enabled": true
         }
