@@ -70,10 +70,6 @@
             "enabled": true
         },
         {
-            "url": "https://raw.githubusercontent.com/rjdsq/git-cf-api/refs/heads/main/max.txt",
-            "enabled": true
-        },
-        {
             "url": "https://wtf-359.pages.dev/wtf.txt",
             "enabled": true
         }
@@ -174,5 +170,24 @@
     "GITHUB_SYNC_MAX_RETRIES": 3,
     "GITHUB_SYNC_RETRY_DELAY": 3,
     "GIT_SYNC_PROCESS_TIMEOUT": 180,
-    "_comment_GIT_SYNC_PROCESS_TIMEOUT": "Git 同步子进程最大运行时间（秒）"
+    "_comment_GIT_SYNC_PROCESS_TIMEOUT": "Git 同步子进程最大运行时间（秒）",
+
+    "_comment_AD": "ip.txt 广告植入（开关独立）",
+    "AD_HEADER_ENABLED": false,
+    "_comment_AD_HEADER_ENABLED": "头部广告开关（可多行）",
+    "AD_HEADER_LINES": [
+        "0.0.0.0:443#格式 或纯文本1",
+        "0.0.0.0:443#格式 或纯文本2"
+    ],
+
+    "AD_FOOTER_ENABLED": false,
+    "_comment_AD_FOOTER_ENABLED": "尾部广告开关（可多行）",
+    "AD_FOOTER_LINES": [
+        "0.0.0.0:443#格式 或纯文本3",
+        "0.0.0.0:443#格式 或纯文本4"
+    ],
+
+    "AD_PERLINE_ENABLED": false,
+    "_comment_AD_PERLINE_ENABLED": "行尾追加开关",
+    "AD_PERLINE_TEXT": " 纯文本"
 }

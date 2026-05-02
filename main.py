@@ -177,6 +177,12 @@ def load_config():
         "GITHUB_SYNC_MAX_RETRIES": 3,
         "GITHUB_SYNC_RETRY_DELAY": 3,
         "GIT_SYNC_PROCESS_TIMEOUT": 180,
+        "AD_HEADER_ENABLED": False,
+        "AD_HEADER_LINES": [],
+        "AD_FOOTER_ENABLED": False,
+        "AD_FOOTER_LINES": [],
+        "AD_PERLINE_ENABLED": False,
+        "AD_PERLINE_TEXT": "",
     }
 
     for key, value in defaults.items():
@@ -213,7 +219,6 @@ CF_TTL = cfg["CF_TTL"]
 CF_PROXIED = cfg["CF_PROXIED"]
 CF_DNS_CONNECT_TIMEOUT = cfg["CF_DNS_CONNECT_TIMEOUT"]
 CF_DNS_READ_TIMEOUT = cfg["CF_DNS_READ_TIMEOUT"]
-# ADDITIONAL_SOURCES 不在顶层声明，在 main() 中直接使用 cfg.get("ADDITIONAL_SOURCES", [])
 FETCH_MAX_RETRIES = cfg["FETCH_MAX_RETRIES"]
 FETCH_RETRY_DELAY = cfg["FETCH_RETRY_DELAY"]
 FETCH_TIMEOUT = cfg["FETCH_TIMEOUT"]
@@ -247,6 +252,12 @@ DNS_UPDATE_RETRY_DELAY = cfg["DNS_UPDATE_RETRY_DELAY"]
 GITHUB_SYNC_MAX_RETRIES = cfg["GITHUB_SYNC_MAX_RETRIES"]
 GITHUB_SYNC_RETRY_DELAY = cfg["GITHUB_SYNC_RETRY_DELAY"]
 GIT_SYNC_PROCESS_TIMEOUT = cfg["GIT_SYNC_PROCESS_TIMEOUT"]
+AD_HEADER_ENABLED = cfg["AD_HEADER_ENABLED"]
+AD_HEADER_LINES = cfg["AD_HEADER_LINES"]
+AD_FOOTER_ENABLED = cfg["AD_FOOTER_ENABLED"]
+AD_FOOTER_LINES = cfg["AD_FOOTER_LINES"]
+AD_PERLINE_ENABLED = cfg["AD_PERLINE_ENABLED"]
+AD_PERLINE_TEXT = cfg["AD_PERLINE_TEXT"]
 
 socket.setdefaulttimeout(SOCKET_DEFAULT_TIMEOUT)
 BANDWIDTH_URL = BANDWIDTH_URL_TEMPLATE.format(bytes=int(BANDWIDTH_SIZE_MB * 1024 * 1024))
@@ -850,6 +861,24 @@ def sync_to_github():
     )
     print(f"⚠️ 已尝试 {max_retries} 次推送，均失败，请检查网络或 GitHub 仓库状态。")
 
+def write_ip_txt(final_nodes, output_file,
+                 header_enabled, header_lines,
+                 footer_enabled, footer_lines,
+                 perline_enabled, perline_text):
+    """生成包含广告的 ip.txt"""
+    with open(output_file, "w", encoding="utf-8") as f:
+        if header_enabled:
+            for line in header_lines:
+                f.write(line + "\n")
+        for node in final_nodes:
+            if perline_enabled and perline_text:
+                f.write(f"{node}{perline_text}\n")
+            else:
+                f.write(node + "\n")
+        if footer_enabled:
+            for line in footer_lines:
+                f.write(line + "\n")
+
 def main():
     mode_str = f"全局最优{GLOBAL_TOP_N}个" if USE_GLOBAL_MODE else f"每个国家最优{PER_COUNTRY_TOP_N}个"
     print(f"当前模式：{mode_str}，每个节点测试 {TCP_PROBES} 次 TCP 连接")
@@ -1001,17 +1030,15 @@ def main():
             else:
                 print(f"{i}. {node} 速度 {speed:.2f} Mbps")
 
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        for node_str in final_selected:
-            f.write(node_str + "\n")
+    # 使用广告配置生成 ip.txt
+    write_ip_txt(final_selected, OUTPUT_FILE,
+                 AD_HEADER_ENABLED, AD_HEADER_LINES,
+                 AD_FOOTER_ENABLED, AD_FOOTER_LINES,
+                 AD_PERLINE_ENABLED, AD_PERLINE_TEXT)
     print(f"\n结果已保存到 {OUTPUT_FILE}（共 {len(final_selected)} 个节点）")
 
-    ip_list = []
-    try:
-        with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
-            ip_list = [line.split(':')[0].strip() for line in f if line.strip()]
-    except Exception as e:
-        print(f"读取 {OUTPUT_FILE} 时发生错误: {e}")
+    # IP 列表直接从最终节点提取，避免广告行干扰 DNS 更新
+    ip_list = [node.split(':')[0] for node in final_selected]
 
     target_dns_count = GLOBAL_TOP_N if USE_GLOBAL_MODE else PER_COUNTRY_TOP_N
     batch_update_cloudflare_dns(
