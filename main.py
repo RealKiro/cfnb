@@ -888,8 +888,12 @@ async def query_new_ips(new_ips, token_list, concurrency, min_interval, trust_en
 
                     if info and info.get("CountryCode") != "Unknown":
                         tag_parts = [info["CountryCode"]]
+                        if info.get("Region") and info["Region"] != "Unknown":
+                            tag_parts.append(info["Region"])
                         if info.get("City") and info["City"] != "Unknown":
                             tag_parts.append(info["City"])
+                        if info.get("ASN") and info["ASN"] != "Unknown":
+                            tag_parts.append(info["ASN"])
                         if info.get("ISP") and info["ISP"] != "Unknown":
                             tag_parts.append(info["ISP"])
                         tag = " ".join(tag_parts)
