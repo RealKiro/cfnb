@@ -216,6 +216,12 @@ docker run -d --name cfnb \
 | 自建镜像 | `docker build -t cfnb .`（依赖编译仅发生在构建阶段） |
 | CI 流程 | PR / 推送 → 构建测试（依赖导入 + 语法检查）→ 多架构构建 → 推送 GHCR（PR 仅测试不推送） |
 
+**Fork 用户**：CI 使用 `${{ github.repository }}` 自动定位仓库，fork 后推送到自己仓库，镜像会自动发布到 **你自己的** GHCR 命名空间（`ghcr.io/你的用户名/cfnb`），与原仓库互不影响。只需三步：
+
+1. fork 后在仓库的 **Actions 页面** 点击启用工作流（GitHub 默认禁用 fork 的 Actions）；
+2. 推送任意提交（或手动 `Run workflow` 触发），CI 会用你自己的 `GITHUB_TOKEN` 构建并推送到你的 GHCR；
+3. 首次发布的镜像包默认 **private**，如需公开拉取请到个人主页 **Packages → cfnb → Package settings → Change visibility** 设为 Public，然后把 `docker-compose.yml` 中的 `image` 改为 `ghcr.io/你的用户名/cfnb:latest`。
+
 > 💡 镜像内已内置 `bash`（推送脚本）、`curl`（带宽测速）、`git`（GitHub 同步），无需额外安装任何东西。
 
 <details>
