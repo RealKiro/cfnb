@@ -69,6 +69,7 @@
 | `docker-compose.yml` | Docker Compose 一键部署配置 |
 | `docker-entrypoint.sh` | 容器入口脚本（git 初始化 + 定时循环） |
 | `requirements.txt` | Python 依赖清单 |
+| `.env.example` | Docker 环境变量模板（复制为 `.env` 配置 `CFNB_IMAGE` 镜像地址） |
 | `git_sync.ps1` | Windows 推送脚本（强制推送 `ip.txt` 到 GitHub） |
 | `git_sync.sh` | Linux 推送脚本（强制推送 `ip.txt` 到 GitHub） |
 | `setup.ps1` | Windows 一键部署脚本（安装依赖并配置计划任务） |
@@ -184,14 +185,17 @@ cd /path/to/cfnb
 # 3. 确保 ip.txt 存在（用于结果持久化挂载）
 touch ip.txt
 
-# 4. 启动（默认每 5 分钟自动运行一次）
+# 4.（可选）使用 GHCR 镜像而非本地构建：复制模板并填入你的地址
+cp .env.example .env && nano .env    # CFNB_IMAGE=ghcr.io/<你的用户名>/cfnb:latest
+
+# 5. 启动（默认每 5 分钟自动运行一次；未配置 CFNB_IMAGE 时自动本地构建）
 docker compose up -d
 
-# 5. 查看日志
+# 6. 查看日志
 docker compose logs -f
 ```
 
-不想用 Compose 也可以直接 `docker run`：
+不想用 Compose 也可以直接 `docker run`（把 `<你的用户名>` 替换为仓库所属的 GitHub 用户名）：
 
 ```bash
 docker run -d --name cfnb \
@@ -200,14 +204,15 @@ docker run -d --name cfnb \
   -v $(pwd)/config.json:/app/config.json \
   -v $(pwd)/git_sync.sh:/app/git_sync.sh \
   -v $(pwd)/ip.txt:/app/ip.txt \
-  ghcr.io/realkiro/cfnb:latest
+  ghcr.io/<你的用户名>/cfnb:latest
 ```
 
 **说明**：
 
 | 项 | 说明 |
 | :--- | :--- |
-| 镜像地址 | `ghcr.io/realkiro/cfnb:latest`（每次推送到 main 分支后 CI 自动更新；也提供 `sha-xxxxxxx` 精确版本标签） |
+| 镜像地址 | `ghcr.io/<你的用户名>/cfnb:latest`（每次推送到 main 分支后 CI 自动更新；也提供 `sha-xxxxxxx` 精确版本标签） |
+| 镜像来源 | `docker-compose.yml` **不写死镜像名**：通过环境变量 `CFNB_IMAGE` 注入（推荐复制 `.env.example` 为 `.env` 后填写）；未设置时回退为本地构建 |
 | `RUN_INTERVAL` | 循环间隔（秒）。默认 `0` = 只运行一次；`docker compose` 默认设为 `300`（5 分钟） |
 | 挂载 `config.json` | 修改参数无需重建镜像 |
 | 挂载 `git_sync.sh` | 令牌在宿主机修改即生效，不会打进镜像 |
@@ -220,7 +225,8 @@ docker run -d --name cfnb \
 
 1. fork 后在仓库的 **Actions 页面** 点击启用工作流（GitHub 默认禁用 fork 的 Actions）；
 2. 推送任意提交（或手动 `Run workflow` 触发），CI 会用你自己的 `GITHUB_TOKEN` 构建并推送到你的 GHCR；
-3. 首次发布的镜像包默认 **private**，如需公开拉取请到个人主页 **Packages → cfnb → Package settings → Change visibility** 设为 Public，然后把 `docker-compose.yml` 中的 `image` 改为 `ghcr.io/你的用户名/cfnb:latest`。
+3. 首次发布的镜像包默认 **private**，如需公开拉取请到个人主页 **Packages → cfnb → Package settings → Change visibility** 设为 Public；
+4. 复制 `.env.example` 为 `.env`，填写 `CFNB_IMAGE=ghcr.io/你的用户名/cfnb:latest`，`docker compose up -d` 即使用你自己 CI 构建的镜像（不设置则本地构建，同样可用）。
 
 > 💡 镜像内已内置 `bash`（推送脚本）、`curl`（带宽测速）、`git`（GitHub 同步），无需额外安装任何东西。
 
