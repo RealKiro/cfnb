@@ -1,0 +1,24 @@
+# docker-compose.yml
+# 使用前确保当前目录存在 config.json / git_sync.sh（仓库自带，改好令牌即可）
+# ip.txt 若不存在请先执行：touch ip.txt
+#
+# 快速启动：docker compose up -d
+# 查看日志：docker compose logs -f
+
+services:
+  cfnb:
+    # GHCR 镜像（CI 自动构建推送）；也可以改为本地构建：
+    # build: .
+    image: ghcr.io/realkiro/cfnb:latest
+    container_name: cfnb
+    restart: unless-stopped
+    environment:
+      - RUN_INTERVAL=300              # 每 5 分钟运行一次；0 = 只运行一次
+      - TZ=Asia/Shanghai
+      # - GIT_REPO=realkiro/xxx       # 可选：为容器内 git 初始化 origin 远程
+    volumes:
+      - ./config.json:/app/config.json          # 主配置（含 Cloudflare/WxPusher 令牌）
+      - ./git_sync.sh:/app/git_sync.sh          # 推送脚本（含 GitHub Token，覆盖镜像内默认文件）
+      - ./ip.txt:/app/ip.txt                    # 优选结果持久化
+      # - ./valid_tokens.txt:/app/valid_tokens.txt     # 启用 IP 地区校准时取消注释
+      # - ./ipinfo_cache.txt:/app/ipinfo_cache.txt     # 启用 IP 地区校准时取消注释

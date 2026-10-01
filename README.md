@@ -5,6 +5,7 @@
 [![License](https://img.shields.io/badge/License-MIT-green)]()
 [![Last Commit](https://img.shields.io/github/last-commit/xinyitang3/cfnb?label=Last%20Commit)](https://github.com/xinyitang3/cfnb/commits)
 [![Repo Size](https://img.shields.io/github/repo-size/xinyitang3/cfnb?label=Repo%20Size)](https://github.com/xinyitang3/cfnb)
+[![Docker CI](https://github.com/RealKiro/cfnb/actions/workflows/docker.yml/badge.svg)](https://github.com/RealKiro/cfnb/actions/workflows/docker.yml)
 [![Telegram](https://img.shields.io/badge/Telegram-@MiaChatChannel-26A5E4?logo=telegram)](https://t.me/MiaChatChannel)
 
 > ⭐ **如果觉得好用，点个 Star 支持一下～**
@@ -64,6 +65,10 @@
 | :--- | :--- |
 | `main.py` | 核心优选程序（抓取、测试、筛选、更新、推送） |
 | `config.json` | 所有运行参数的配置文件（含详细注释） |
+| `Dockerfile` | Alpine 多阶段构建镜像（构建依赖不进最终镜像，体积精简） |
+| `docker-compose.yml` | Docker Compose 一键部署配置 |
+| `docker-entrypoint.sh` | 容器入口脚本（git 初始化 + 定时循环） |
+| `requirements.txt` | Python 依赖清单 |
 | `git_sync.ps1` | Windows 推送脚本（强制推送 `ip.txt` 到 GitHub） |
 | `git_sync.sh` | Linux 推送脚本（强制推送 `ip.txt` 到 GitHub） |
 | `setup.ps1` | Windows 一键部署脚本（安装依赖并配置计划任务） |
@@ -77,12 +82,11 @@
 
 ## 🖥️ 系统要求
 
-- **操作系统**：Windows 10+ / Windows Server 2016+ 或 Linux（Ubuntu/Debian/CentOS 等）
-- **必备软件**：
-  - **Python 3.7+**
-  - **Git**
-  - **curl**（需在系统 PATH 中可用）
-- **Python 依赖**：`requests`, `aiohttp`, `brotlicffi`
+- **操作系统**：Windows 10+ / Windows Server 2016+ 或 Linux（Ubuntu/Debian/CentOS 等），也支持 **Docker**
+- **必备软件**（三选一）：
+  - **Docker**（推荐，无需安装其他任何依赖）
+  - 或 **Python 3.7+** + **Git** + **curl**（curl 需在系统 PATH 中可用）
+- **Python 依赖**：`requests`, `aiohttp`, `brotlicffi`（Docker 镜像已内置）
 
 ---
 
@@ -166,6 +170,53 @@ nano git_sync.sh
 # 5. 测试运行
 python3 main.py
 ```
+
+### 🐳 Docker 部署
+
+镜像基于 **Alpine 多阶段构建**（构建依赖不进入最终镜像），由 GitHub Actions 自动测试并推送到 GHCR，支持 `amd64` / `arm64`。
+
+```bash
+# 1. 进入项目目录
+cd /path/to/cfnb
+
+# 2. 按需修改 config.json（Cloudflare / WxPusher 令牌）和 git_sync.sh（GitHub Token）
+
+# 3. 确保 ip.txt 存在（用于结果持久化挂载）
+touch ip.txt
+
+# 4. 启动（默认每 5 分钟自动运行一次）
+docker compose up -d
+
+# 5. 查看日志
+docker compose logs -f
+```
+
+不想用 Compose 也可以直接 `docker run`：
+
+```bash
+docker run -d --name cfnb \
+  -e RUN_INTERVAL=300 \
+  -e TZ=Asia/Shanghai \
+  -v $(pwd)/config.json:/app/config.json \
+  -v $(pwd)/git_sync.sh:/app/git_sync.sh \
+  -v $(pwd)/ip.txt:/app/ip.txt \
+  ghcr.io/realkiro/cfnb:latest
+```
+
+**说明**：
+
+| 项 | 说明 |
+| :--- | :--- |
+| 镜像地址 | `ghcr.io/realkiro/cfnb:latest`（每次推送到 main 分支后 CI 自动更新；也提供 `sha-xxxxxxx` 精确版本标签） |
+| `RUN_INTERVAL` | 循环间隔（秒）。默认 `0` = 只运行一次；`docker compose` 默认设为 `300`（5 分钟） |
+| 挂载 `config.json` | 修改参数无需重建镜像 |
+| 挂载 `git_sync.sh` | 令牌在宿主机修改即生效，不会打进镜像 |
+| `GIT_REPO`（可选） | 格式 `用户名/仓库名`，容器首次启动会自动 `git init` 并添加 origin 远程 |
+| 手动运行一次 | `docker compose run --rm cfnb`（忽略 `RUN_INTERVAL` 需临时传 `-e RUN_INTERVAL=0`） |
+| 自建镜像 | `docker build -t cfnb .`（依赖编译仅发生在构建阶段） |
+| CI 流程 | PR / 推送 → 构建测试（依赖导入 + 语法检查）→ 多架构构建 → 推送 GHCR（PR 仅测试不推送） |
+
+> 💡 镜像内已内置 `bash`（推送脚本）、`curl`（带宽测速）、`git`（GitHub 同步），无需额外安装任何东西。
 
 <details>
 <summary>📝 手动部署详细步骤（点击展开）</summary>

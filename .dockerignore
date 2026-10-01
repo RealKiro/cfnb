@@ -1,0 +1,23 @@
+# 版本控制与 CI
+.git
+.github
+
+# 文档与许可
+*.md
+LICENSE
+
+# Docker 自身文件
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# 运行产物与本地脚本（镜像内不需要）
+ip.txt
+*.log
+ipinfo_cache.txt
+_headers
+setup.ps1
+setup.sh
+update_fork.ps1
+update_fork.sh
+git_sync.ps1
